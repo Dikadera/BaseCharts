@@ -1,0 +1,23 @@
+{
+  "0x61eb0d5c2009b298d7920f261e5c41d20d448d21": {
+    "walletAddress": "0x61eb0d5c2009b298d7920f261e5c41d20d448d21",
+    "plan": "starter",
+    "pairsAllowed": 5,
+    "pairsUsed": 5,
+    "pairsAccessed": [
+      "BTC/USDC",
+      "ETH/USDC",
+      "TSLA",
+      "SOL/USDC",
+      "SUI/USDC"
+    ],
+    "transactions": [
+      {
+        "txHash": "0xe628150bf02f62803f92e717e6f95415aac50fc05eb00d905f866b287e06ad24",
+        "plan": "starter",
+        "amount": 3,
+        "timestamp": "2026-05-26T20:28:27.878Z"
+      }
+    ]
+  }
+}
