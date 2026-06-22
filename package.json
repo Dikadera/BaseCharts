@@ -8,7 +8,7 @@
     "dev": "node server.js"
   },
   "dependencies": {
-    "@circle-fin/developer-controlled-wallets": "^10.3.1",
+    "@coinbase/coinbase-sdk": "^0.25.0",
     "@google/generative-ai": "^0.24.1",
     "@modelcontextprotocol/sdk": "^1.0.4",
     "axios": "^1.6.8",

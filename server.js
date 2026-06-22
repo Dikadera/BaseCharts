@@ -8,7 +8,7 @@ const axios = require('axios');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const multer = require('multer');
-const { CircleDeveloperControlledWalletsClient } = require('@circle-fin/developer-controlled-wallets');
+const { Coinbase, Wallet } = require('@coinbase/coinbase-sdk');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -45,14 +45,61 @@ const upload = multer({
   }
 });
 
-// Circle Client
-let circleClient = null;
-if (process.env.CIRCLE_API_KEY && process.env.CIRCLE_ENTITY_SECRET) {
-  circleClient = new CircleDeveloperControlledWalletsClient({
-    apiKey: process.env.CIRCLE_API_KEY,
-    entitySecret: process.env.CIRCLE_ENTITY_SECRET
-  });
+// Coinbase CDP Client
+let isCdpConfigured = false;
+let cdpWallet = null;
+
+if (process.env.CDP_API_KEY_NAME && process.env.CDP_API_KEY_PRIVATE_KEY) {
+  try {
+    Coinbase.configure({
+      apiKeyName: process.env.CDP_API_KEY_NAME,
+      privateKey: process.env.CDP_API_KEY_PRIVATE_KEY.replace(/\\n/g, '\n')
+    });
+    isCdpConfigured = true;
+    console.log('✓ Coinbase Developer Platform (CDP) SDK configured successfully.');
+  } catch (err) {
+    console.error('Failed to configure Coinbase SDK:', err.message);
+  }
 }
+
+const CDP_WALLET_PATH = path.join(__dirname, 'cdp_wallet.json');
+
+async function initCdpWallet() {
+  if (!isCdpConfigured) {
+    console.log('🔄 Running in SIMULATOR mode (No CDP credentials provided).');
+    return;
+  }
+
+  try {
+    if (fs.existsSync(CDP_WALLET_PATH)) {
+      console.log('📂 Loading existing CDP Developer Wallet from cdp_wallet.json...');
+      const walletData = JSON.parse(fs.readFileSync(CDP_WALLET_PATH, 'utf8'));
+      cdpWallet = await Wallet.import(walletData);
+      console.log(`✓ Loaded CDP Wallet. Address: ${await cdpWallet.getDefaultAddress().then(a => a.getId())}`);
+    } else {
+      console.log('🆕 Creating a new CDP Developer Wallet on Base Sepolia...');
+      cdpWallet = await Wallet.create({ networkId: 'base-sepolia' });
+      const walletData = cdpWallet.export();
+      fs.writeFileSync(CDP_WALLET_PATH, JSON.stringify(walletData, null, 2), 'utf8');
+      console.log(`✓ Created and saved new CDP Wallet. Address: ${await cdpWallet.getDefaultAddress().then(a => a.getId())}`);
+      
+      console.log('🚰 Requesting faucet funds for the new developer wallet...');
+      try {
+        const faucetTx = await cdpWallet.faucet();
+        await faucetTx.wait();
+        console.log('✓ Faucet funding transaction completed successfully!');
+      } catch (faucetErr) {
+        console.warn('⚠️ Faucet request failed (probably rate-limited or unavailable):', faucetErr.message);
+      }
+    }
+  } catch (err) {
+    console.error('❌ Failed to initialize CDP programmatic wallet:', err.message);
+    cdpWallet = null;
+  }
+}
+
+// Trigger async initialization
+initCdpWallet().catch(err => console.error('Failed to async-init CDP wallet:', err));
 
 // User Database
 const USERS_DB_PATH = path.join(__dirname, 'users_db.json');
@@ -172,18 +219,25 @@ app.post('/api/log-error', (req, res) => {
 
 // API: CONFIG STATUS
 // ─────────────────────────────────────────────────────────
-app.get('/api/config-status', (req, res) => {
-  const isConfigured = !!(process.env.CIRCLE_API_KEY && process.env.CIRCLE_WALLET_ID && process.env.CIRCLE_ENTITY_SECRET);
+app.get('/api/config-status', async (req, res) => {
+  let devWalletAddress = null;
+  if (cdpWallet) {
+    try {
+      const defaultAddr = await cdpWallet.getDefaultAddress();
+      devWalletAddress = defaultAddr.getId();
+    } catch (e) {}
+  }
+
   res.json({
-    configured: isConfigured,
+    configured: isCdpConfigured,
     hasGemini: !!process.env.GEMINI_API_KEY,
-    mode: isConfigured ? 'LIVE (Circle Base Web3 API)' : 'SIMULATOR (Local Sandboxed Base)',
+    mode: isCdpConfigured ? 'LIVE (CDP Base Web3 API)' : 'SIMULATOR (Local Sandboxed Base)',
     details: {
-      hasApiKey: !!process.env.CIRCLE_API_KEY,
-      hasWalletId: !!process.env.CIRCLE_WALLET_ID,
-      hasEntitySecret: !!process.env.CIRCLE_ENTITY_SECRET,
-      destinationWalletId: process.env.CIRCLE_DESTINATION_WALLET_ID || '0xSimulatedMerchantWalletAddressBaseL2',
-      usdcTokenId: process.env.CIRCLE_USDC_TOKEN_ID || '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
+      hasApiKey: !!process.env.CDP_API_KEY_NAME,
+      hasPrivateKey: !!process.env.CDP_API_KEY_PRIVATE_KEY,
+      developerWalletAddress: devWalletAddress || '0xSimulatedDeveloperWalletAddressBaseL2',
+      destinationWalletId: process.env.DESTINATION_WALLET_ADDRESS || '0x05c950D2EE2507678c71492a27eE1fe593CAC546',
+      usdcTokenId: process.env.USDC_TOKEN_ADDRESS || '0x036CbD53842c5426634e7929541eC2318f3dCF7e'
     }
   });
 });
